@@ -136,6 +136,3 @@ Open the `.Rmd` files in `R/` with RStudio. Run Project 1 with an IPUMS key in `
 
 Do not commit API keys, access tokens, private configuration files, or downloaded data unless redistribution is permitted by the source. Check the terms and citation guidance for NHGIS, ERA5, and the World Mortality Dataset before sharing derived or source data. The analyses and visualizations in this repository are provided for portfolio and educational purposes.
 
-## Author
-
-Add your name, contact details, and links to your portfolio or professional profiles here.
