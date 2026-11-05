@@ -1,0 +1,285 @@
+---
+title: "Project 2: Heatwave analysis for Italy (R version)"
+output: html_notebook
+---
+
+R equivalent of the Python notebook `project2_italy_heatwave.ipynb`. Analysis of the summer 2022 heatwave in Italy: ERA5 2-metre temperature (Copernicus CDS API), weekly all-cause mortality (World Mortality Dataset by Karlinsky & Kobak), a simple time-series model of excess mortality, and a binned scatter plot of the mortality-temperature relationship.
+
+**Requirements:** see the project `README.md`. A Copernicus CDS account (personal access token) is needed to download ERA5, and `world_mortality.csv` must be placed in `data/`. Expected layout: this notebook lives in `R/`; the ERA5 NetCDF files are downloaded to `../data/era5/` (not tracked by git).
+
+## Task 1 : Generate the ERA5 data extract for Italy
+
+Task 1.1: Generate the ERA5 data extract for Italy using the API of daily-hourly data starting in 2015. As a consequence, the reference period for our analysis will be 2015-2020, when we assess the situation in the summer of 2022. Recall that the coordinates are (anti-clockwise): [N,W,S,E]. The bounding box for Italy is [46,9,37,18.5].
+
+```{r}
+library(tidyverse)
+library(lubridate)    # dates, ISO weeks
+library(ecmwfr)       # Copernicus CDS API
+library(ncdf4)        # read the NetCDF files
+library(sf)           # coastlines for the map
+library(rnaturalearth)
+library(aweek)        # start date of a week (equivalent of get_date)
+library(binsreg)      # binned scatter plot
+
+# Output folder (relative path; the .nc files are not tracked by git)
+DATADIR <- "../data/era5"
+dir.create(DATADIR, recursive = TRUE, showWarnings = FALSE)
+```
+
+```{r, eval=FALSE}
+# Run once: store your CDS personal access token (https://cds.climate.copernicus.eu/how-to-api)
+# wf_set_key(key = "<your CDS personal access token>")
+```
+
+```{r}
+# Download year by year to stay within the CDS API request limits
+for (year in 2015:2024) {
+
+  target <- sprintf("Italy_%d.nc", year)
+
+  # Skip the years already downloaded
+  if (file.exists(file.path(DATADIR, target))) next
+  message("Downloading ", year, "...")
+
+  request <- list(
+    dataset_short_name = "reanalysis-era5-single-levels",
+    product_type = "reanalysis",
+    variable     = "2m_temperature",
+    year         = as.character(year),
+    month        = sprintf("%02d", 1:12),
+    day          = sprintf("%02d", 1:31),
+    time         = sprintf("%02d:00", 0:23),
+    area         = c(46, 9, 37, 18.5),        # Italy bounding box [N, W, S, E]
+    data_format  = "netcdf",
+    download_format = "unarchived",
+    target       = target
+  )
+
+  wf_request(request, path = DATADIR, transfer = TRUE)
+}
+message("Download completed")
+```
+
+```{r}
+# Loading and preparing the ERA5 temperature data.
+# The data were downloaded year by year to comply with CDS API limits:
+# each file is read, converted to Celsius and averaged by day, then the years are stacked.
+
+# Convert the "valid_time" variable of a NetCDF file into POSIXct
+read_valid_time <- function(nc) {
+  v     <- ncvar_get(nc, "valid_time")
+  units <- ncatt_get(nc, "valid_time", "units")$value
+  mult  <- c(seconds = 1, minutes = 60, hours = 3600, days = 86400)[sub(" since.*", "", units)]
+  as.POSIXct(sub(".*since ", "", units), tz = "UTC") + v * mult
+}
+
+files <- list.files(DATADIR, pattern = "^Italy_[0-9]{4}\\.nc$", full.names = TRUE)
+
+daily_list <- lapply(files, function(f) {
+  nc <- nc_open(f)
+  on.exit(nc_close(nc))
+
+  t2m_C <- ncvar_get(nc, "t2m") - 273.15   # Conversion to Celsius (dims: longitude, latitude, time)
+  lon   <- ncvar_get(nc, "longitude")
+  lat   <- ncvar_get(nc, "latitude")
+  day   <- as.Date(read_valid_time(nc))
+
+  # Daily aggregation: group the hours by date (Year-Month-Day) and take the mean
+  m     <- matrix(t2m_C, nrow = length(lon) * length(lat))   # cells x hours
+  daily <- rowsum(t(m), group = day) / as.vector(table(day))   # days x cells
+  list(daily = daily, lon = lon, lat = lat)
+})
+
+lon <- daily_list[[1]]$lon
+lat <- daily_list[[1]]$lat
+year_month_day_mean <- do.call(rbind, lapply(daily_list, `[[`, "daily"))   # days x cells
+dates <- as.Date(rownames(year_month_day_mean))
+
+dim(year_month_day_mean)   # number of days x number of grid cells
+range(dates)
+```
+
+Task 1.2: Then aggregate hourly local data for the week, and then aggregate the local measures. Display the map. Finally, write the data to disk as a csv file.
+
+```{r}
+# Latitude weights (cosine of latitude), one weight per grid cell.
+# Note: this is a mean over the requested bounding box, including sea and neighboring
+# regions; no Italy land mask is applied in this version.
+weights <- rep(cos(lat * pi / 180), each = length(lon))
+
+# Weighted mean over the grid for each day
+Italy_t2m <- as.vector(year_month_day_mean %*% weights) / sum(weights)
+```
+
+```{r}
+# Extraction for August 3rd, 2022
+target_date <- as.Date("2022-08-03")
+
+map_0308 <- expand_grid(latitude = lat, longitude = lon) %>%
+  arrange(latitude, longitude) %>%
+  mutate(t2m = as.vector(year_month_day_mean[as.character(target_date), ]))
+```
+
+```{r, fig.width=16, fig.height=8}
+dir.create("pics", showWarnings = FALSE)
+
+coast <- ne_coastline(scale = "medium", returnclass = "sf")
+
+p_map <- ggplot() +
+  geom_raster(data = map_0308, aes(x = longitude, y = latitude, fill = t2m)) +
+  geom_sf(data = coast, colour = "black") +
+  scale_fill_distiller(palette = "RdBu", direction = -1, name = "temperature (°C)") +
+  coord_sf(xlim = c(9, 18.5), ylim = c(37, 46), expand = FALSE) +
+  labs(title = "Mean temperatures on 03.08.2022", x = NULL, y = NULL) +
+  theme_bw() +
+  theme(plot.title = element_text(size = 16), panel.grid = element_line(linetype = "dashed", colour = "grey70"))
+
+ggsave("pics/map_Italy_August2022_2.png", p_map, width = 16, height = 8)
+p_map
+```
+
+### Aggregation of weekly mean temperatures
+
+```{r}
+# 1. Daily series of the weighted mean temperature
+df_italy <- tibble(date = dates, t2m = Italy_t2m)
+
+# 2. Extract Year and (ISO) Week from the date
+# 3. Group by Year and Week to get the weekly average
+# Note: as in the Python version, "year" is the calendar year and "week" the ISO week,
+# so the days of an ISO week that straddle two calendar years form two groups.
+weekly_temp <- df_italy %>%
+  mutate(year = isoyear(date), week = isoweek(date)) %>%
+  group_by(year, week) %>%
+  summarise(t2m = mean(t2m), .groups = "drop") %>%
+  mutate(
+    jan4 = as.Date(paste0(year, "-01-04")),
+    start_date = jan4 - days(wday(jan4, week_start = 1) - 1) + weeks(week - 1)
+  ) %>%
+  select(-jan4)
+
+# 4. Write the data to disk as a csv file
+write_csv(weekly_temp, "../data/Italy_week_temperature.csv")
+
+weekly_temp
+```
+
+## Task 1.3
+
+Load your csv-file of the temperature data, and visualise this temperature data. Consider the summer of 2022 starting in June and finishing end of August.
+
+```{r}
+# Load the csv file
+weekly_temp <- read_csv("../data/Italy_week_temperature.csv", show_col_types = FALSE)
+
+# Filtering data for Summer 2022
+summer_2022_temp <- weekly_temp %>%
+  filter(year == 2022, between(week, 22, 35))
+
+summer_2022_temp
+```
+
+```{r, fig.width=14, fig.height=6}
+# Plot the series on the Monday starting each ISO week.
+ggplot(weekly_temp, aes(x = start_date, y = t2m)) +
+  # 3. Add the grey area for summer 2022
+  annotate("rect", xmin = as.Date("2022-06-01"), xmax = as.Date("2022-08-31"),
+           ymin = -Inf, ymax = Inf, fill = "darkgrey", alpha = 0.6) +
+  geom_line(colour = "black", linewidth = 0.4) +
+  scale_x_date(expand = c(0, 0)) +
+  labs(title = "Time evolution of average temperature (t2m) from 2015 to 2024",
+       x = "week", y = "t2m") +
+  theme_bw(base_size = 14)
+```
+
+## 2 The mortality data
+
+Task 2.1. Use of the World Mortality Dataset compiled by Ariel Karlinsky and Dmitry Kobak that records all-cause mortality at a weekly level. Filter Italy, which has iso3c code "ITA".
+
+```{r}
+# Loading and previewing the mortality dataset
+world_mort <- read_csv("../data/world_mortality.csv", show_col_types = FALSE)
+head(world_mort)
+```
+
+```{r}
+# Filtering Italy data and cleaning the mortality dataset
+# (start_date: first day of the ISO week, equivalent of get_date)
+set_week_start("Monday")
+
+mortality <- world_mort %>%
+  filter(iso3c == "ITA") %>%                                   # filter
+  select(-c(iso3c, country_name, time_unit)) %>%               # select(-c(...))
+  rename(mortality = deaths, week = time) %>%                  # rename
+  mutate(start_date = get_date(week = week, year = year))      # start of the week
+
+mortality
+```
+
+## 3 A simple time-series model of excess mortality
+
+Task 3: Next, estimate a simple time-series model of excess mortality for the period before 2020-03-01, which only considers a linear year effect and week fixed effects. Then use the model to predict mortality for the summer of 2022, and compute the measure of excess mortality (i.e. observed - predicted weekly mortality from all causes).
+
+```{r}
+# 1. Split train (before March 2020) / test (summer 2022)
+train <- mortality %>% filter(start_date < as.Date("2020-03-01"))
+summer_2022 <- mortality %>% filter(year == 2022, between(week, 22, 35))
+
+# 2. Fit the model: linear year effect + week fixed effects (one dummy per week)
+model <- lm(mortality ~ year + factor(week), data = train)
+
+# 3. Predict summer 2022
+summer_2022$predicted <- predict(model, newdata = summer_2022)
+
+# 4. Compute excess mortality (Observed - Predicted)
+summer_2022$excess_mortality <- summer_2022$mortality - summer_2022$predicted
+
+# Total excess mortality
+total_excess <- sum(summer_2022$excess_mortality)
+```
+
+```{r, fig.width=10, fig.height=10}
+# Plot the excess mortality curve
+ggplot(summer_2022, aes(x = start_date, y = excess_mortality, colour = "excess deaths")) +
+  geom_line(linewidth = 1) +
+  scale_colour_manual(values = c("excess deaths" = "#FF2E00"), name = NULL) +
+  # Display the months on the x-axis (Jun, Jul, Aug, Sep)
+  scale_x_date(date_breaks = "1 month", date_labels = "%b") +
+  labs(title = "Italy : Excess deaths", x = "date", y = "death count") +
+  theme_bw(base_size = 14) +
+  theme(plot.title = element_text(size = 22, hjust = 0),
+        panel.grid.minor = element_blank(),
+        legend.position = "bottom")
+```
+
+```{r}
+cat(sprintf("Estimated total excess mortality (summer 2022): %.0f deaths\n", total_excess))
+```
+
+## 4 The mortality and temperature relationship
+
+Task 4: Finally consider the (potential all-cause) mortality and temperature relationship using a bin scatter plot.
+
+```{r}
+# 1. Merge the mortality data with the weekly temperature on year and week
+#    (the weekly_temp "date" column is only used for plotting and is dropped)
+# 2. We keep only rows where the year is NOT equal to 2024, and where a temperature is available
+df_merged <- mortality %>%
+  left_join(select(weekly_temp, start_date, t2m), by = "start_date") %>%
+  filter(year != 2024, !is.na(t2m))
+```
+
+```{r}
+# Generate the binned scatter plot
+# y: dependent variable "mortality"; x: independent variable "t2m"
+# nbins: number of bins
+# line = c(1, 0): the first 1 is the degree of the polynomial (1 = linear / straight line),
+#                 the second 0 means 0 constraints on derivatives at the knots (creates the gaps)
+est <- binsreg(
+  y = df_merged$mortality, x = df_merged$t2m,
+  data = df_merged, nbins = 10, line = c(1, 0)
+)
+est$bins_plot +
+  labs(x = "Bounding-box mean temperature (degrees C)", y = "Weekly all-cause deaths") +
+  theme_bw(base_size = 14)
+```

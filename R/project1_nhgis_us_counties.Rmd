@@ -1,0 +1,364 @@
+---
+title: "Project 1: NHGIS and the US county population (R version)"
+output: html_notebook
+---
+
+R equivalent of the Python notebook `project1_nhgis_us_counties.ipynb`. It builds maps and charts of the **2010 US county population by racial group** from IPUMS NHGIS data (2020 county shapefile + time-series table CW8):
+
+- **Task 1:** population barplots for a county (Los Angeles)
+- **Task 2:** static choropleth map of all counties
+- **Task 3:** interactive Leaflet map
+- **Task 4:** interactive dashboard (Shiny, the R equivalent of Dash)
+
+**Requirements:** see the project `README.md`. An IPUMS API key is required (stored in `ipums_key.txt`, which is not tracked by git). Expected layout: this notebook lives in `R/` and the downloaded data goes to `../data/`.
+
+## PRELIMINARIES
+
+### Importing libraries
+
+```{r}
+## Data manipulation and visualisation (dplyr, tidyr, forcats, ggplot2, ...)
+library(tidyverse)
+library(scales)       # number formatting and colour palettes
+library(grid)         # draw the combined figures
+library(gridExtra)    # side-by-side charts
+
+## Spatial data
+library(sf)           # shapefiles + geographic data
+
+## Interactive map (Leaflet)
+library(leaflet)
+
+## Interactive dashboard (R equivalent of Dash)
+library(shiny)
+
+## NHGIS (IPUMS) API
+library(ipumsr)
+```
+
+### Connecting to the IPUMS NHGIS API
+
+```{r}
+# Read the API key stored locally in a text file
+# (ipums_key.txt is listed in .gitignore: never commit your key)
+IPUMS_API_KEY <- readLines("ipums_key.txt", n = 1)
+
+# Set the key for this session so that API requests can be submitted
+set_ipums_api_key(IPUMS_API_KEY)
+```
+
+### Extraction
+
+```{r}
+# CREATE THE NHGIS SHAPEFILE EXTRACT
+
+# Define an NHGIS extract request for the US county shapefile (2020)
+extract_shape <- define_extract_nhgis(
+  description = "US counties shapefile",
+  shapefiles  = "us_county_2020_tl2020"
+)
+
+# Submit the request to the IPUMS NHGIS servers
+extract_shape <- submit_extract(extract_shape)
+
+# Wait for the extract to be processed
+extract_shape <- wait_for_extract(extract_shape)
+
+# Download the files into the local "data/" folder
+shape_zip <- download_extract(extract_shape, download_dir = "../data", overwrite = TRUE)
+```
+
+```{r}
+# Import the US counties shapefile (read directly from the downloaded ZIP file)
+shape_us <- read_ipums_sf(shape_zip)
+
+# Display the first rows to check the content
+head(shape_us)
+```
+
+```{r}
+# Keep only the contiguous USA (Alaska and Hawaii excluded)
+shape_us <- shape_us %>%
+  mutate(STATEFP = as.integer(STATEFP)) %>%
+  filter(STATEFP < 57, !(STATEFP %in% c(2, 15)))
+
+head(shape_us)
+```
+
+```{r}
+# CW8 data extraction (years 2000 and 2010, county level)
+extract_cw8 <- define_extract_nhgis(
+  description = "CW8 correct extract",
+  time_series_tables = tst_spec(
+    "CW8",                      # Name of the time-series table to extract
+    geog_levels = "county",     # Geographic level (here: counties)
+    years = c("2000", "2010")   # Years of data requested
+  )
+)
+
+# Submit the extract request, wait for it and download the CSV ZIP file
+extract_cw8 <- submit_extract(extract_cw8)
+extract_cw8 <- wait_for_extract(extract_cw8)
+cw8_zip <- download_extract(extract_cw8, download_dir = "../data", overwrite = TRUE)
+```
+
+```{r}
+# Import the CW8 data (the CSV file is read directly from the ZIP file)
+cw8_df <- read_nhgis(cw8_zip)
+
+head(cw8_df)
+```
+
+### Merging the datasets
+
+```{r}
+# Keep only the cw8_df rows whose GISJOIN identifiers exist in shape_us
+cw8_df <- cw8_df %>% filter(GISJOIN %in% shape_us$GISJOIN)
+
+# Keep only the shape_us areas that are present in cw8_df
+shape_us <- shape_us %>% filter(GISJOIN %in% cw8_df$GISJOIN)
+```
+
+```{r}
+# Keep the 2010 columns (CW8xx2010) and the identifiers
+cw8_2010 <- cw8_df %>%
+  select(GISJOIN, STATE, matches("^CW8[A-Z]{2}2010$"))
+```
+
+```{r}
+# Population by group, computed from the NHGIS CW8 codes.
+# Table CW8 is "Persons by Sex by Race": columns AA-AF are Male and AG-AL are Female,
+# so each group is the sum of its Male and Female columns.
+#   White : AA + AG      Black : AB + AH      Native : AC + AI
+#   Asian : AD + AJ      Other : AE + AF + AK + AL
+cw8_clean <- cw8_2010 %>%
+  mutate(
+    pop_white  = CW8AA2010 + CW8AG2010,
+    pop_black  = CW8AB2010 + CW8AH2010,
+    pop_native = CW8AC2010 + CW8AI2010,
+    pop_asian  = CW8AD2010 + CW8AJ2010,
+    pop_other  = CW8AE2010 + CW8AF2010 + CW8AK2010 + CW8AL2010,
+    # Total population: sum of all the CW8 columns (2010)
+    total_pop  = rowSums(across(matches("^CW8[A-Z]{2}2010$")))
+  ) %>%
+  # Keep only the useful columns (identifier, state, population by group + total)
+  select(GISJOIN, STATE, pop_white, pop_black, pop_native, pop_asian, pop_other, total_pop)
+```
+
+```{r}
+# Merge shape_us with cw8_clean on GISJOIN, keeping only the matching rows
+shape_us <- shape_us %>%
+  inner_join(cw8_clean, by = "GISJOIN") %>%
+  # Select and reorder the useful columns, including geographic information and population data
+  select(any_of(c("GISJOIN", "STATEFP", "COUNTYFP", "COUNTYNS", "GEOID", "NAME", "NAMELSAD",
+                  "LSAD", "CLASSFP", "MTFCC", "STATE",
+                  "pop_white", "pop_black", "pop_native", "pop_asian", "pop_other", "total_pop")))
+
+# Sanity check: the five groups should add up to the total population
+stopifnot(all(abs(rowSums(st_drop_geometry(shape_us)[, c("pop_white", "pop_black", "pop_native",
+                                                          "pop_asian", "pop_other")]) -
+                    shape_us$total_pop) < 1e-6, na.rm = TRUE))
+```
+
+### Task 1 : County population barplots
+
+```{r, fig.width=16, fig.height=6}
+# Groups displayed and their colours
+groups       <- c(White = "pop_white", Black = "pop_black", Native = "pop_native",
+                  Asian = "pop_asian", Other = "pop_other")
+group_colors <- c(White = "#4C78A8", Black = "#F58518", Native = "#54A24B",
+                  Asian = "#E45756", Other = "#B279A2")
+
+# Two side-by-side charts for one county (an sf row): counts and population shares
+county_barplots <- function(county_row, title) {
+
+  d <- county_row %>%
+    st_drop_geometry() %>%
+    select(all_of(unname(groups))) %>%
+    pivot_longer(everything(), names_to = "var", values_to = "count") %>%
+    mutate(
+      race   = factor(names(groups)[match(var, groups)], levels = names(groups)),
+      share  = count / county_row$total_pop,
+      # Small bars: label outside the bar; otherwise label centred in the bar
+      inside = count >= max(count) * 0.12
+    )
+
+  # Left chart: counts, scientific notation on the x-axis
+  p1 <- ggplot(d, aes(x = count, y = race, fill = race)) +
+    geom_col() +
+    geom_text(aes(x = ifelse(inside, count / 2, count), label = race,
+                  hjust = ifelse(inside, 0.5, 0), colour = inside),
+              fontface = "bold") +
+    scale_fill_manual(values = group_colors) +
+    scale_colour_manual(values = c(`TRUE` = "white", `FALSE` = "black")) +
+    scale_x_continuous(labels = label_scientific(digits = 1)) +
+    labs(title = title, x = "Population", y = "Race") +
+    theme_minimal() +
+    theme(axis.text.y = element_blank(), legend.position = "none")
+
+  # Right chart: population shares
+  p2 <- ggplot(d, aes(x = share, y = race, fill = race)) +
+    geom_col() +
+    scale_fill_manual(values = group_colors) +
+    labs(x = "Population share", y = NULL) +
+    theme_minimal() +
+    theme(axis.text.y = element_blank(), legend.position = "none")
+
+  arrangeGrob(p1, p2, ncol = 2)
+}
+
+# Los Angeles County, selected through its GEOID
+la <- shape_us %>% filter(GEOID == "06037")
+grid.newpage()
+grid.draw(county_barplots(la, "County : Los Angeles"))
+```
+
+### Task 2 : All counties
+
+```{r, fig.width=10, fig.height=6}
+# Manually defined population classes (upper bounds of the first six classes)
+pop_breaks <- c(7036, 13009, 20680, 32542, 54701, 131842)
+pop_class_labels <- c(
+  paste0("<= ", comma(pop_breaks[1])),
+  paste(comma(head(pop_breaks, -1)), comma(pop_breaks[-1]), sep = " - "),
+  paste0("> ", comma(tail(pop_breaks, 1)))
+)
+# Colour palette (yellow -> brown) + light grey for missing data
+pop_colors <- setNames(c(brewer_pal(palette = "YlOrBr")(7), "lightgrey"),
+                       c(pop_class_labels, "Missing"))
+
+# Add the population class column ("Missing" when the population is not available)
+add_pop_class <- function(d) {
+  d %>%
+    mutate(
+      pop_class = cut(total_pop, breaks = c(-Inf, pop_breaks, Inf),
+                      labels = pop_class_labels, right = TRUE),
+      pop_class = fct_expand(pop_class, "Missing"),
+      pop_class = replace(pop_class, is.na(total_pop), "Missing")
+    )
+}
+
+# Create the map
+shape_us %>%
+  add_pop_class() %>%
+  ggplot() +
+  geom_sf(aes(fill = pop_class), colour = "grey", linewidth = 0.2) +
+  scale_fill_manual(values = pop_colors, name = NULL) +
+  labs(title = "Total Population by County") +
+  theme_void() +
+  theme(plot.title = element_text(size = 12, hjust = 0.5),
+        legend.position = "inside",
+        legend.position.inside = c(0.02, 0.08),
+        legend.text = element_text(size = 8))
+```
+
+### Task 3 : leaflet
+
+```{r}
+# Create the interactive map
+
+# Convert the coordinate system to WGS84 (web format)
+# and simplify geometries to lighten the map and improve performance
+shape_wgs84 <- shape_us %>%
+  st_transform(4326) %>%
+  st_simplify(preserveTopology = TRUE, dTolerance = 0.01)
+
+# Colour scale from the minimum to the maximum population
+colormap <- colorNumeric("YlOrBr", domain = range(shape_wgs84$total_pop, na.rm = TRUE))
+
+m <- leaflet(shape_wgs84) %>%
+  setView(lng = -96, lat = 37.8, zoom = 4) %>%       # Centre the map on the United States
+  addProviderTiles(providers$CartoDB.Positron) %>%   # Light, minimalist basemap
+  addPolygons(
+    fillColor = ~colormap(total_pop), fillOpacity = 0.75,
+    color = "black", weight = 0.25,
+    label = ~sprintf("County: %s | Population: %s", NAME, comma(total_pop)),   # Shown on hover
+    popup = ~sprintf("<b>County:</b> %s<br><b>Population:</b> %s", NAME, comma(total_pop))  # Shown on click
+  ) %>%
+  addLegend(pal = colormap, values = ~total_pop, title = "Population by county",
+            position = "bottomright")
+
+# Export the interactive map as an HTML file
+htmlwidgets::saveWidget(m, "leaflet_task3_20_20_fast.html", selfcontained = TRUE)
+
+cat("Leaflet ready\n")
+m   # Display the map
+```
+
+### Task 4 : Shiny
+
+The dashboard is launched by the cell below (local server). Preview:
+
+![Shiny dashboard - California / Los Angeles](../img/shiny_dashboard.png)
+
+```{r}
+# Dashboard
+
+# Sorted list of available states for the dropdown
+states <- sort(unique(shape_us$STATE))
+
+# Map of one state, coloured with the same population classes as Task 2
+state_map <- function(state) {
+  shape_us %>%
+    filter(STATE == state) %>%
+    add_pop_class() %>%
+    ggplot() +
+    geom_sf(aes(fill = pop_class), colour = "grey", linewidth = 0.2) +
+    scale_fill_manual(values = pop_colors, guide = "none") +
+    labs(title = paste0(state, " - Population by County")) +
+    theme_void()
+}
+
+ui <- fluidPage(
+
+  # Main dashboard title
+  titlePanel("US County Population 2010"),
+
+  fluidRow(
+    column(2,
+      # State selector
+      selectInput("state", "State", choices = states, selected = "California"),
+      # County selector (filled dynamically)
+      selectInput("county", "County", choices = NULL)
+    ),
+    column(10,
+      plotOutput("map", height = "420px"),     # Map of the selected state
+      plotOutput("barplot", height = "320px")  # Population charts of the selected county
+    )
+  )
+)
+
+server <- function(input, output, session) {
+
+  # Update the county list when the state changes
+  observeEvent(input$state, {
+    counties <- shape_us %>%
+      st_drop_geometry() %>%
+      filter(STATE == input$state) %>%
+      arrange(NAME)
+
+    # Default value (Los Angeles if present, otherwise the first county)
+    default <- if ("06037" %in% counties$GEOID) "06037" else counties$GEOID[1]
+
+    updateSelectInput(session, "county",
+                      choices  = setNames(counties$GEOID, paste(counties$NAME, "County")),
+                      selected = default)
+  })
+
+  output$map <- renderPlot({
+    req(input$state)
+    state_map(input$state)
+  })
+
+  output$barplot <- renderPlot({
+    req(input$county)
+    county_row <- shape_us %>% filter(GEOID == input$county)
+    req(nrow(county_row) == 1)
+    grid.newpage()
+    grid.draw(county_barplots(county_row, paste(county_row$NAME, "County")))
+  })
+}
+
+# Starts a local Shiny app (in RStudio it opens in the notebook / viewer)
+shinyApp(ui = ui, server = server)
+```
