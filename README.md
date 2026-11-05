@@ -11,37 +11,29 @@ Two portfolio projects demonstrating data acquisition, cleaning, analysis, and v
 
 Each project has Python and R versions. The R notebooks are in `R/`; the Python notebooks are in `notebooks/`.
 
-## Visual previews
+## R results at a glance
 
-The previews are grouped by project and language. GitHub displays the static figures below; interactive maps and dashboards must be run locally from the notebooks.
+The figures in this gallery were generated with the R analyses. The equivalent Python notebooks and their outputs are also included in [`notebooks/`](notebooks/): [Project 1](notebooks/project1_nhgis_us_counties.ipynb) and [Project 2](notebooks/project2_italy_heatwave.ipynb). The interactive maps and dashboards must be run locally; GitHub displays the static figures below.
 
 ### Project 1 — US county population
 
-#### Python outputs
+The R figures show the population counts and shares for Los Angeles County, followed by the county-level population map. The map uses 2020 county boundaries to display 2010 population data. These previews were rendered in R from the NHGIS county geometries and population fields embedded in the saved project HTML output. The R Markdown notebook also contains the IPUMS extraction workflow for reproducing the analysis from source.
 
-<p align="center"><img src="img/project1_county_population.png" alt="Python output: population counts and shares for Los Angeles County" width="49%" /> <img src="img/project1_population_map.png" alt="Python output: choropleth of total population by US county" width="49%" /></p>
+<p align="center"><img src="img/r_project1_la_population.png" alt="R output: population counts and shares for Los Angeles County" width="49%" /> <img src="img/r_project1_us_county_population_map.png" alt="R output: 2010 total population by US county" width="49%" /></p>
 
-#### R outputs
-
-These figures were rendered in R from the county geometries and NHGIS population fields embedded in the saved project HTML output. The R Markdown notebook also contains the full IPUMS extraction workflow for reproducing the analysis from source.
-
-<p align="center"><img src="img/r_project1_la_population.png" alt="R output: population counts and shares for Los Angeles County" width="49%" /> <img src="img/r_project1_us_county_population_map.png" alt="R output: choropleth of 2010 total population by US county" width="49%" /></p>
+Python counterpart: [`project1_nhgis_us_counties.ipynb`](notebooks/project1_nhgis_us_counties.ipynb).
 
 ### Project 2 — Italy heatwave and mortality
 
-#### Python outputs
-
-<p align="center"><img src="img/project2_temperature_map.png" alt="Python output: ERA5 temperature map for 3 August 2022" width="49%" /> <img src="img/project2_weekly_temperature.png" alt="Python output: weekly temperature series from 2015 to 2024" width="49%" /></p>
-
-<p align="center"><img src="img/project2_excess_mortality.png" alt="Python output: estimated weekly excess mortality in summer 2022" width="49%" /> <img src="img/project2_temperature_mortality_bins.png" alt="Python output: binned relationship between weekly temperature and mortality" width="49%" /></p>
-
-#### R outputs
-
-These figures were generated with R from the local `Italy_week_temperature.csv` and World Mortality Dataset CSV. The CSVs are not committed to the repository; follow the setup instructions to obtain them. With the simple pre-March-2020 baseline model, the estimated excess over weeks 22–35 of 2022 is about **27,536 deaths**. This is a model-based difference, not a count of deaths proven to have been caused by heat. The ERA5 temperature map is not shown here because the raw NetCDF downloads are not present; the R Markdown notebook can generate it after the CDS data are retrieved.
+These R figures show the weekly temperature series, the model-based excess-mortality estimate, and the binned temperature–mortality relationship. The estimated excess over weeks 22–35 of 2022 is about **27,536 deaths** relative to the simple pre-March-2020 baseline. This is a model-based difference, not evidence that the heatwave caused those deaths. The temperature average covers the Italy bounding box, including sea areas and neighboring regions.
 
 <p align="center"><img src="img/r_project2_weekly_temperature.png" alt="R output: weekly mean temperature from 2015 to 2024" width="49%" /> <img src="img/r_project2_excess_mortality.png" alt="R output: estimated weekly excess mortality in summer 2022" width="49%" /></p>
 
 <p align="center"><img src="img/r_project2_temperature_mortality.png" alt="R output: binned relationship between weekly temperature and mortality" width="70%" /></p>
+
+These previews were generated in R from the local weekly-temperature CSV and the World Mortality Dataset. The CSVs are not committed; follow the setup instructions to obtain them. The ERA5 temperature map can be produced by running the R Markdown notebook after downloading the raw NetCDF data.
+
+Python counterpart: [`project2_italy_heatwave.ipynb`](notebooks/project2_italy_heatwave.ipynb).
 
 ## 1. US county population by racial group
 
