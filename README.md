@@ -11,6 +11,38 @@ Two portfolio projects demonstrating data acquisition, cleaning, analysis, and v
 
 Each project has Python and R versions. The R notebooks are in `R/`; the Python notebooks are in `notebooks/`.
 
+## Visual previews
+
+The previews are grouped by project and language. GitHub displays the static figures below; interactive maps and dashboards must be run locally from the notebooks.
+
+### Project 1 — US county population
+
+#### Python outputs
+
+<p align="center"><img src="img/project1_county_population.png" alt="Python output: population counts and shares for Los Angeles County" width="49%" /> <img src="img/project1_population_map.png" alt="Python output: choropleth of total population by US county" width="49%" /></p>
+
+#### R outputs
+
+These figures were rendered in R from the county geometries and NHGIS population fields embedded in the saved project HTML output. The R Markdown notebook also contains the full IPUMS extraction workflow for reproducing the analysis from source.
+
+<p align="center"><img src="img/r_project1_la_population.png" alt="R output: population counts and shares for Los Angeles County" width="49%" /> <img src="img/r_project1_us_county_population_map.png" alt="R output: choropleth of 2010 total population by US county" width="49%" /></p>
+
+### Project 2 — Italy heatwave and mortality
+
+#### Python outputs
+
+<p align="center"><img src="img/project2_temperature_map.png" alt="Python output: ERA5 temperature map for 3 August 2022" width="49%" /> <img src="img/project2_weekly_temperature.png" alt="Python output: weekly temperature series from 2015 to 2024" width="49%" /></p>
+
+<p align="center"><img src="img/project2_excess_mortality.png" alt="Python output: estimated weekly excess mortality in summer 2022" width="49%" /> <img src="img/project2_temperature_mortality_bins.png" alt="Python output: binned relationship between weekly temperature and mortality" width="49%" /></p>
+
+#### R outputs
+
+These figures were generated with R from the local `Italy_week_temperature.csv` and World Mortality Dataset CSV. The CSVs are not committed to the repository; follow the setup instructions to obtain them. With the simple pre-March-2020 baseline model, the estimated excess over weeks 22–35 of 2022 is about **27,536 deaths**. This is a model-based difference, not a count of deaths proven to have been caused by heat. The ERA5 temperature map is not shown here because the raw NetCDF downloads are not present; the R Markdown notebook can generate it after the CDS data are retrieved.
+
+<p align="center"><img src="img/r_project2_weekly_temperature.png" alt="R output: weekly mean temperature from 2015 to 2024" width="49%" /> <img src="img/r_project2_excess_mortality.png" alt="R output: estimated weekly excess mortality in summer 2022" width="49%" /></p>
+
+<p align="center"><img src="img/r_project2_temperature_mortality.png" alt="R output: binned relationship between weekly temperature and mortality" width="70%" /></p>
+
 ## 1. US county population by racial group
 
 ### Objective
@@ -67,6 +99,7 @@ For a stronger analytical study, useful next steps would include checking the mo
 ├── .gitignore
 ├── notebooks/                 # Python notebooks
 ├── R/                         # R Markdown notebooks
+├── img/                       # Static visual previews used in this README
 └── data/                      # Local inputs and generated data; see .gitignore
 ```
 
