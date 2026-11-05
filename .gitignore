@@ -1,0 +1,27 @@
+# Secrets and local credentials
+ipums_key.txt
+.cdsapirc
+.env
+
+# Local data, downloaded source files, and generated outputs
+data/
+*.nc
+*.zip
+*.shp
+*.shx
+*.dbf
+*.prj
+*.cpg
+
+# Notebook-generated artifacts
+notebooks/leaflet_task3_20_20_fast.html
+notebooks/pics/
+R/pics/
+R/leaflet_task3_20_20_fast.html
+
+# Python and Jupyter
+.ipynb_checkpoints/
+__pycache__/
+*.py[cod]
+.venv/
+.DS_Store

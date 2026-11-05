@@ -1,0 +1,24 @@
+# Core
+pandas
+numpy
+matplotlib
+jupyter
+
+# Project 1 - NHGIS US county population
+geopandas
+mapclassify
+folium
+branca
+plotly
+dash
+ipumspy
+
+# Project 2 - Italy heatwave
+xarray
+dask
+netCDF4
+cartopy
+cdsapi>=0.7.7
+urllib3
+scikit-learn
+binsreg
