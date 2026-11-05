@@ -25,7 +25,11 @@ Python counterpart: [`project1_nhgis_us_counties.ipynb`](notebooks/project1_nhgi
 
 ### Project 2 — Italy heatwave and mortality
 
-These R figures show the weekly temperature series, the model-based excess-mortality estimate, and the binned temperature–mortality relationship. The estimated excess over weeks 22–35 of 2022 is about **27,536 deaths** relative to the simple pre-March-2020 baseline. This is a model-based difference, not evidence that the heatwave caused those deaths. The temperature average covers the Italy bounding box, including sea areas and neighboring regions.
+The map below is the available Python preview of ERA5 mean temperature on 3 August 2022. It covers the Italy bounding box, including nearby sea and neighboring regions. The corresponding R map can be rendered from the R Markdown notebook after downloading the raw NetCDF data.
+
+<p align="center"><img src="img/project2_temperature_map.png" alt="Python preview: ERA5 temperature over the Italy bounding box on 3 August 2022" width="70%" /></p>
+
+The following figures are R outputs: the weekly temperature series, the model-based excess-mortality estimate, and the binned temperature–mortality relationship. The estimated excess over weeks 22–35 of 2022 is about **27,536 deaths** relative to the simple pre-March-2020 baseline. This is a model-based difference, not evidence that the heatwave caused those deaths. The temperature average covers the Italy bounding box, including sea areas and neighboring regions.
 
 <p align="center"><img src="img/r_project2_weekly_temperature.png" alt="R output: weekly mean temperature from 2015 to 2024" width="49%" /> <img src="img/r_project2_excess_mortality.png" alt="R output: estimated weekly excess mortality in summer 2022" width="49%" /></p>
 
